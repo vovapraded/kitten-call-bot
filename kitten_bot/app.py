@@ -17,6 +17,7 @@ from telegram.ext import (
 )
 
 from .config import MAX_COUNT, MAX_WINDOW, Config
+from .network import ReliableBot
 from .photos import Photos
 from .storage import Settings, Store
 
@@ -291,14 +292,14 @@ class Handlers:
             )
         except TelegramError as exc:
             logger.warning("Could not register menu (%s)", type(exc).__name__)
-        logger.info("Kitten bot started")
+        logger.info("Настройка меню завершена; подключаю получение сообщений")
 
 
 def build_application(config: Config, store: Store, photos: Photos) -> Application:
     handlers = Handlers(store, photos)
     app = (
         Application.builder()
-        .token(config.token)
+        .bot(ReliableBot(config.token, config.telegram_timeout))
         .concurrent_updates(False)
         .post_init(handlers.startup)
         .build()

@@ -7,7 +7,7 @@ from kitten_bot.config import DEFAULT_MESSAGE, Config, validate_message
 
 @pytest.fixture(autouse=True)
 def clean_config_environment(monkeypatch):
-    for key in ("BOT_TOKEN", "DB_PATH", "KITTEN_DIR", "LOG_LEVEL"):
+    for key in ("BOT_TOKEN", "DB_PATH", "KITTEN_DIR", "LOG_LEVEL", "TELEGRAM_TIMEOUT"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -34,6 +34,7 @@ def test_environment_defaults_and_token_are_loaded_without_leaking_repr(monkeypa
     assert config.db_path == Path("data/bot.sqlite3")
     assert config.kitten_dir.is_dir()
     assert config.log_level == "INFO"
+    assert config.telegram_timeout == 30
 
 
 def test_paths_and_case_insensitive_log_level_can_be_overridden(monkeypatch, tmp_path):
@@ -69,3 +70,17 @@ def test_caption_limit_counts_utf16_units(message):
 def test_caption_trims_outer_whitespace_and_preserves_unicode_and_inner_newlines():
     message = "Созвонимся? 🐱\nВстреча в 18:00 — всем удобно?"
     assert validate_message(f" \n{message}\t ") == message
+
+
+@pytest.mark.parametrize("value", ["0", "4.9", "121", "NaN", "inf", "", "slow"])
+def test_invalid_network_timeout_is_rejected(monkeypatch, value):
+    monkeypatch.setenv("BOT_TOKEN", "123456:fake-for-unit-tests")
+    monkeypatch.setenv("TELEGRAM_TIMEOUT", value)
+    with pytest.raises(ValueError, match="TELEGRAM_TIMEOUT"):
+        Config.from_env()
+
+
+def test_network_timeout_is_configurable(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "123456:fake-for-unit-tests")
+    monkeypatch.setenv("TELEGRAM_TIMEOUT", "60")
+    assert Config.from_env().telegram_timeout == 60

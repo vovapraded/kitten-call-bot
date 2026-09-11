@@ -8,6 +8,8 @@ services:
       DB_PATH: /app/data/bot.sqlite3
       KITTEN_DIR: /app/assets/kittens
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TELEGRAM_TIMEOUT: ${TELEGRAM_TIMEOUT:-30}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
     volumes:
       - bot-data:/app/data
     read_only: true
@@ -17,7 +19,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    stop_grace_period: 30s
+    stop_grace_period: 90s
     logging:
       driver: json-file
       options:

@@ -4,9 +4,11 @@ import logging
 import sys
 
 from telegram import Update
+from telegram.error import InvalidToken
 
 from .app import build_application
 from .config import Config
+from .network import POLL_TIMEOUT, StartupRejected
 from .photos import Photos
 from .storage import Store
 
@@ -33,14 +35,32 @@ def main() -> int:
         photos = Photos(config.kitten_dir)
         store = Store(config.db_path)
         app = build_application(config, store, photos)
+        logging.getLogger(__name__).info(
+            "Подключаюсь к Telegram (сетевой таймаут: %s с). "
+            "При временной недоступности соединение будет восстановлено автоматически.",
+            config.telegram_timeout,
+        )
         app.run_polling(
             allowed_updates=[Update.MESSAGE, Update.MY_CHAT_MEMBER],
             drop_pending_updates=False,
-            bootstrap_retries=3,
+            timeout=POLL_TIMEOUT,
+            bootstrap_retries=-1,
         )
+    except InvalidToken:
+        print("Telegram отклонил BOT_TOKEN. Проверьте токен из @BotFather в .env.", file=sys.stderr)
+        return 1
+    except StartupRejected as exc:
+        print(
+            f"Telegram отклонил запуск: {exc.method}, {exc.kind}. "
+            "Запустите python -m kitten_bot.doctor для проверки сети и настроек.",
+            file=sys.stderr,
+        )
+        return 1
     except ValueError as exc:
         # Only our validated messages are printed; dependency errors may include secrets.
-        if str(exc).startswith(("Задайте BOT_TOKEN", "LOG_LEVEL:", "В KITTEN_DIR")):
+        if str(exc).startswith(
+            ("Задайте BOT_TOKEN", "LOG_LEVEL:", "В KITTEN_DIR", "TELEGRAM_TIMEOUT:")
+        ):
             print(str(exc), file=sys.stderr)
         else:
             print("Ошибка конфигурации. Проверьте BOT_TOKEN и пути к данным/фото.", file=sys.stderr)
