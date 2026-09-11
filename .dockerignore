@@ -1,0 +1,9 @@
+*
+!requirements.txt
+!kitten_bot/
+!kitten_bot/**
+!assets/
+!assets/kittens/
+!assets/kittens/**
+**/__pycache__/
+**/*.py[cod]

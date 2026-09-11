@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Lint
+        run: python -m ruff check .
+      - name: Test
+        run: python -m pytest -q
+      - name: Build and check Compose with persistent storage
+        env:
+          BOT_TOKEN: "123456:ci-placeholder"
+        run: |
+          docker compose config --quiet
+          docker compose build
+          docker compose run --rm --no-deps bot python -c '
+          import os
+          from kitten_bot.config import Config
+          from kitten_bot.photos import Photos
+          from kitten_bot.storage import Store
+          config = Config.from_env()
+          assert os.getuid() == 10001
+          assert len(Photos(config.kitten_dir).files) >= 2
+          store = Store(config.db_path)
+          assert store.settings(-1).window == 40
+          store.configure(-1, count=7)
+          store.close()
+          '
+          docker compose run --rm --no-deps bot python -c '
+          from kitten_bot.config import Config
+          from kitten_bot.storage import Store
+          store = Store(Config.from_env().db_path)
+          assert store.settings(-1).count == 7
+          store.close()
+          '
