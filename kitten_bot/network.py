@@ -36,7 +36,13 @@ def error_kind(exc: BaseException) -> str:
 
 
 class TelegramRequest(HTTPXRequest):
-    def __init__(self, timeout: float = 30.0, *, polling: bool = False):
+    def __init__(
+        self,
+        timeout: float = 30.0,
+        *,
+        polling: bool = False,
+        proxy_url: str | None = None,
+    ):
         super().__init__(
             connection_pool_size=1 if polling else 16,
             connect_timeout=timeout,
@@ -44,6 +50,7 @@ class TelegramRequest(HTTPXRequest):
             write_timeout=timeout,
             pool_timeout=10,
             media_write_timeout=max(60, timeout),
+            proxy=proxy_url,
         )
         self._last_warning: dict[str, float] = {}
         self._failed: set[str] = set()
@@ -85,11 +92,11 @@ class ReliableBot(ExtBot):
 
     __slots__ = ("_polling_confirmed",)
 
-    def __init__(self, token: str, timeout: float = 30.0):
+    def __init__(self, token: str, timeout: float = 30.0, proxy_url: str | None = None):
         super().__init__(
             token=token,
-            request=TelegramRequest(timeout),
-            get_updates_request=TelegramRequest(timeout, polling=True),
+            request=TelegramRequest(timeout, proxy_url=proxy_url),
+            get_updates_request=TelegramRequest(timeout, polling=True, proxy_url=proxy_url),
         )
         self._polling_confirmed = False
 

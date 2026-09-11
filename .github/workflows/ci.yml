@@ -48,3 +48,15 @@ jobs:
           assert store.settings(-1).count == 7
           store.close()
           '
+          docker compose run --rm --no-deps -e TELEGRAM_PROXY_URL=socks5://proxy.example:1080 bot python -c '
+          import asyncio
+          from kitten_bot.config import Config
+          from kitten_bot.network import ReliableBot
+          async def check():
+              config = Config.from_env()
+              assert config.telegram_proxy_url == "socks5://proxy.example:1080"
+              bot = ReliableBot(config.token, proxy_url=config.telegram_proxy_url)
+              for request in bot._request:
+                  await request.shutdown()
+          asyncio.run(check())
+          '

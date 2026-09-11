@@ -40,6 +40,8 @@ def main() -> int:
             "При временной недоступности соединение будет восстановлено автоматически.",
             config.telegram_timeout,
         )
+        if config.telegram_proxy_url:
+            logging.getLogger(__name__).info("Для Telegram настроен прокси")
         app.run_polling(
             allowed_updates=[Update.MESSAGE, Update.MY_CHAT_MEMBER],
             drop_pending_updates=False,
@@ -59,7 +61,13 @@ def main() -> int:
     except ValueError as exc:
         # Only our validated messages are printed; dependency errors may include secrets.
         if str(exc).startswith(
-            ("Задайте BOT_TOKEN", "LOG_LEVEL:", "В KITTEN_DIR", "TELEGRAM_TIMEOUT:")
+            (
+                "Задайте BOT_TOKEN",
+                "LOG_LEVEL:",
+                "В KITTEN_DIR",
+                "TELEGRAM_TIMEOUT:",
+                "TELEGRAM_PROXY_URL",
+            )
         ):
             print(str(exc), file=sys.stderr)
         else:

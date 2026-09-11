@@ -2,12 +2,20 @@ from pathlib import Path
 
 import pytest
 
-from kitten_bot.config import DEFAULT_MESSAGE, Config, validate_message
+from kitten_bot.config import DEFAULT_MESSAGE, Config, validate_message, validate_proxy_url
 
 
 @pytest.fixture(autouse=True)
 def clean_config_environment(monkeypatch):
-    for key in ("BOT_TOKEN", "DB_PATH", "KITTEN_DIR", "LOG_LEVEL", "TELEGRAM_TIMEOUT"):
+    for key in (
+        "BOT_TOKEN",
+        "DB_PATH",
+        "KITTEN_DIR",
+        "LOG_LEVEL",
+        "TELEGRAM_TIMEOUT",
+        "TELEGRAM_PROXY_URL",
+        "HTTPS_PROXY",
+    ):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -35,6 +43,7 @@ def test_environment_defaults_and_token_are_loaded_without_leaking_repr(monkeypa
     assert config.kitten_dir.is_dir()
     assert config.log_level == "INFO"
     assert config.telegram_timeout == 30
+    assert config.telegram_proxy_url is None
 
 
 def test_paths_and_case_insensitive_log_level_can_be_overridden(monkeypatch, tmp_path):
@@ -84,3 +93,51 @@ def test_network_timeout_is_configurable(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "123456:fake-for-unit-tests")
     monkeypatch.setenv("TELEGRAM_TIMEOUT", "60")
     assert Config.from_env().telegram_timeout == 60
+
+
+@pytest.mark.parametrize("scheme", ["http", "https", "socks5", "socks5h"])
+def test_proxy_configuration_supports_auth_and_hides_secrets(monkeypatch, scheme):
+    proxy = f"{scheme}://private-user:p%40ssword@proxy.example:1080"
+    monkeypatch.setenv("BOT_TOKEN", "123456:fake-for-unit-tests")
+    monkeypatch.setenv("TELEGRAM_PROXY_URL", proxy)
+    monkeypatch.setenv("HTTPS_PROXY", "http://old-proxy.example:3128")
+    config = Config.from_env()
+    assert config.telegram_proxy_url == proxy
+    assert "private-user" not in repr(config)
+    assert "p%40ssword" not in repr(config)
+    assert "proxy.example" not in repr(config)
+
+
+def test_legacy_https_proxy_still_works(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "123456:fake-for-unit-tests")
+    monkeypatch.setenv("TELEGRAM_PROXY_URL", "  ")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    assert Config.from_env().telegram_proxy_url == "http://proxy.example:3128"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "tg://proxy?server=proxy.example",
+        "socks4://proxy.example:1080",
+        "proxy.example:1080",
+        "http://",
+        "http://proxy.example:0",
+        "http://proxy.example:65536",
+        "http://proxy.example:bad",
+        "http://[broken",
+        "http://proxy.example/path",
+        "http://proxy.example?query=1",
+        "http://proxy.example#fragment",
+        "http://bad host:80",
+    ],
+)
+def test_invalid_proxy_configuration_fails_without_echoing_input(url):
+    with pytest.raises(ValueError, match="TELEGRAM_PROXY_URL") as error:
+        validate_proxy_url(url)
+    assert "proxy.example" not in str(error.value)
+
+
+@pytest.mark.parametrize("url", ["", "  ", "socks5://[::1]:1080", "https://proxy.example"])
+def test_proxy_allows_disabled_ipv6_and_default_http_port(url):
+    assert validate_proxy_url(url) == (url.strip() or None)

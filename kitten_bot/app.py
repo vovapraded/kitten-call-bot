@@ -299,7 +299,7 @@ def build_application(config: Config, store: Store, photos: Photos) -> Applicati
     handlers = Handlers(store, photos)
     app = (
         Application.builder()
-        .bot(ReliableBot(config.token, config.telegram_timeout))
+        .bot(ReliableBot(config.token, config.telegram_timeout, config.telegram_proxy_url))
         .concurrent_updates(False)
         .post_init(handlers.startup)
         .build()

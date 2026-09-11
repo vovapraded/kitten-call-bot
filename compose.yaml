@@ -9,6 +9,7 @@ services:
       KITTEN_DIR: /app/assets/kittens
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TELEGRAM_TIMEOUT: ${TELEGRAM_TIMEOUT:-30}
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
     volumes:
       - bot-data:/app/data

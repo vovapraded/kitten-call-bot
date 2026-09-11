@@ -4,6 +4,7 @@ import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 DEFAULT_COUNT = 20
 DEFAULT_WINDOW = 40
@@ -22,6 +23,31 @@ def validate_message(message: str) -> str:
     return message
 
 
+def validate_proxy_url(value: str) -> str | None:
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        parts = urlsplit(value)
+        if (
+            parts.scheme not in {"http", "https", "socks5", "socks5h"}
+            or not parts.hostname
+            or (parts.port is not None and not 1 <= parts.port <= 65535)
+            or parts.path not in {"", "/"}
+            or parts.query
+            or parts.fragment
+            or any(char.isspace() for char in value)
+        ):
+            raise ValueError
+    except ValueError:
+        raise ValueError(
+            "TELEGRAM_PROXY_URL (или HTTPS_PROXY): нужен адрес http://, https://, "
+            "socks5:// или socks5h:// с хостом и корректным портом. "
+            "Спецсимволы в логине/пароле нужно URL-кодировать."
+        ) from None
+    return value
+
+
 @dataclass(frozen=True)
 class Config:
     token: str = field(repr=False)
@@ -29,6 +55,7 @@ class Config:
     kitten_dir: Path = Path(__file__).resolve().parent.parent / "assets" / "kittens"
     log_level: str = "INFO"
     telegram_timeout: float = 30.0
+    telegram_proxy_url: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -44,10 +71,14 @@ class Config:
                 raise ValueError
         except ValueError:
             raise ValueError("TELEGRAM_TIMEOUT: число от 5 до 120 секунд.") from None
+        proxy = validate_proxy_url(
+            os.environ.get("TELEGRAM_PROXY_URL", "").strip() or os.environ.get("HTTPS_PROXY", "")
+        )
         return cls(
             token=token,
             db_path=Path(os.environ.get("DB_PATH", "data/bot.sqlite3")),
             kitten_dir=Path(os.environ.get("KITTEN_DIR", str(cls.kitten_dir))),
             log_level=level,
             telegram_timeout=timeout,
+            telegram_proxy_url=proxy,
         )

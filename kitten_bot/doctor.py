@@ -11,7 +11,16 @@ from .network import error_kind
 
 
 async def diagnose(config: Config) -> int:
-    async with httpx.AsyncClient(timeout=config.telegram_timeout, follow_redirects=False) as client:
+    print(
+        "Маршрут Telegram: настроенный прокси."
+        if config.telegram_proxy_url
+        else "Маршрут Telegram: по умолчанию."
+    )
+    async with httpx.AsyncClient(
+        timeout=config.telegram_timeout,
+        follow_redirects=False,
+        proxy=config.telegram_proxy_url,
+    ) as client:
         for method in ("getMe", "getWebhookInfo"):
             try:
                 response = await client.post(f"https://api.telegram.org/bot{config.token}/{method}")
@@ -19,7 +28,7 @@ async def diagnose(config: Config) -> int:
                 print(
                     f"{method}: нет связи с Telegram ({error_kind(exc)}). "
                     "Проверьте исходящий HTTPS к api.telegram.org:443, DNS и настройки сети "
-                    "виртуалки. Если доступ ограничен, нужен доступный HTTP-прокси (HTTPS_PROXY)."
+                    "виртуалки и прокси (TELEGRAM_PROXY_URL)."
                 )
                 return 1
             if response.status_code in {401, 404}:
@@ -58,7 +67,7 @@ def main() -> int:
         config = Config.from_env()
         return asyncio.run(diagnose(config))
     except ValueError:
-        print("Проверьте BOT_TOKEN, TELEGRAM_TIMEOUT и LOG_LEVEL в .env.")
+        print("Проверьте BOT_TOKEN, TELEGRAM_PROXY_URL, TELEGRAM_TIMEOUT и LOG_LEVEL в .env.")
         return 1
     except Exception as exc:
         print(f"Диагностика завершилась с ошибкой ({type(exc).__name__}).")
