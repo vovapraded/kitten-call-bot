@@ -1,5 +1,6 @@
 """Exercise Telegram handlers with real updates and an entirely offline bot."""
 
+import asyncio
 from base64 import b64decode
 from datetime import timedelta
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from telegram import Update
 from telegram.error import BadRequest, RetryAfter, TelegramError
 
 from kitten_bot.app import Handlers, build_application
+from kitten_bot.cat_sync import CatSyncError
 from kitten_bot.config import DEFAULT_MESSAGE, Config
 from kitten_bot.photos import Photos
 from kitten_bot.storage import Store
@@ -329,6 +331,7 @@ async def test_anonymous_admin_message_counts_as_conversation(
                            "height": 1}]}, "message"),
         (None, {"voice": {"file_id": "x", "file_unique_id": "y", "duration": 1}}, "message"),
         ("/settings", {}, "settings"),
+        ("/reloadcats@KittenTestBot", {}, "reloadcats"),
         ("/setwindow@KittenTestBot 40", {}, "setwindow"),
         ("/setmessage@KittenTestBot First\nSecond", {}, "setmessage"),
         ("/setcount@AnotherBot 1", {}, None),
@@ -356,3 +359,69 @@ def test_registered_filters_route_updates_without_network(
     bot.send_message.assert_not_awaited()
     bot.send_photo.assert_not_awaited()
     bot.get_chat_member.assert_not_awaited()
+
+
+async def test_reloadcats_does_not_block_message_counting_or_reset_chat_settings(
+    handlers,
+    store,
+    photos,
+    bot,
+    context,
+    make_update,
+    monkeypatch,
+):
+    gate = asyncio.Event()
+    tasks = []
+
+    async def reload():
+        await gate.wait()
+        return 7
+
+    monkeypatch.setattr(photos, "reload_from_github", reload)
+    context.application = SimpleNamespace(
+        create_task=lambda coroutine, **kwargs: tasks.append(asyncio.create_task(coroutine))
+    )
+    store.configure(CHAT_ID, count=5, message="Свой текст")
+    await handlers.reloadcats(make_update("/reloadcats"), context)
+    assert handlers._reload_busy
+    await handlers.message(make_update("hello", message_id=2), context)
+    assert store.count_recent(CHAT_ID, NOW) == 1
+    await handlers.reloadcats(make_update("/reloadcats", message_id=3), context)
+    assert len(tasks) == 1
+    gate.set()
+    await asyncio.gather(*tasks)
+    assert not handlers._reload_busy
+    assert "7 картинок" in bot.send_message.call_args.kwargs["text"]
+    assert store.settings(CHAT_ID).message == "Свой текст"
+    assert store.count_recent(CHAT_ID, NOW) == 1
+
+
+async def test_reloadcats_requires_admin(handlers, bot, context, make_update):
+    bot.get_chat_member.return_value = SimpleNamespace(status="member")
+    await handlers.reloadcats(make_update("/reloadcats"), context)
+    assert not handlers._reload_busy
+    assert "только администраторы" in bot.send_message.call_args.kwargs["text"]
+
+
+async def test_reloadcats_reports_failure_and_releases_busy_flag(
+    handlers,
+    photos,
+    bot,
+    context,
+    make_update,
+    monkeypatch,
+):
+    tasks = []
+    monkeypatch.setattr(
+        photos, "reload_from_github", AsyncMock(side_effect=CatSyncError("GitHub недоступен"))
+    )
+    context.application = SimpleNamespace(
+        create_task=lambda coroutine, **kwargs: tasks.append(asyncio.create_task(coroutine))
+    )
+    await handlers.reloadcats(make_update("/reloadcats"), context)
+    await asyncio.gather(*tasks)
+    assert not handlers._reload_busy
+    assert "GitHub недоступен" in bot.send_message.call_args.kwargs["text"]
+    await handlers.reloadcats(make_update("/reloadcats", message_id=2), context)
+    assert len(tasks) == 1
+    assert "секунд" in bot.send_message.call_args.kwargs["text"]

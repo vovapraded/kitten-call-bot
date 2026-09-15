@@ -29,7 +29,11 @@ jobs:
           docker compose config --quiet
           docker compose build
           docker compose run --rm --no-deps bot python -c '
+          import hashlib
+          import json
           import os
+          from dataclasses import asdict
+          from kitten_bot.cat_sync import CatFile, validate_image
           from kitten_bot.config import Config
           from kitten_bot.photos import Photos
           from kitten_bot.storage import Store
@@ -40,13 +44,27 @@ jobs:
           assert store.settings(-1).window == 40
           store.configure(-1, count=7)
           store.close()
+          photo = Photos(config.kitten_dir).files[0]
+          data = photo.read_bytes()
+          sha = hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
+          entry = CatFile(photo.name, sha, len(data))
+          validate_image(data, entry)
+          cache = config.db_path.parent / "cats"
+          (cache / "objects").mkdir(parents=True, exist_ok=True)
+          (cache / "objects" / entry.cache_name).write_bytes(data)
+          (cache / "current.json").write_text(json.dumps({"commit": "a" * 40, "files": [asdict(entry)]}))
           '
           docker compose run --rm --no-deps bot python -c '
           from kitten_bot.config import Config
+          from kitten_bot.photos import Photos
           from kitten_bot.storage import Store
-          store = Store(Config.from_env().db_path)
+          config = Config.from_env()
+          store = Store(config.db_path)
           assert store.settings(-1).count == 7
           store.close()
+          photos = Photos(config.kitten_dir, cache_dir=config.db_path.parent / "cats")
+          assert len(photos.files) == 1
+          assert photos.commit == "a" * 40
           '
           docker compose run --rm --no-deps -e TELEGRAM_PROXY_URL=socks5://proxy.example:1080 bot python -c '
           import asyncio

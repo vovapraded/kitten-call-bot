@@ -1,6 +1,7 @@
 """Telegram handlers. All chat state mutations run sequentially."""
 
 import logging
+import math
 import time
 from datetime import timedelta
 
@@ -16,6 +17,7 @@ from telegram.ext import (
     filters,
 )
 
+from .cat_sync import CatSyncError
 from .config import MAX_COUNT, MAX_WINDOW, Config
 from .network import ReliableBot
 from .photos import Photos
@@ -40,6 +42,7 @@ HELP = """Котеночки, может, созвонимся? 🐾
 /resume — возобновить
 /reset — вернуть 20 / 40 и исходный текст, включить бота
 /test — прислать пробного котёнка
+/reloadcats — загрузить новых котов из GitHub без перезапуска
 
 Изменение настроек сбрасывает счётчик. /test его не меняет.
 Считаю новые сообщения людей, включая фото, стикеры и голосовые.
@@ -67,6 +70,8 @@ class Handlers:
     def __init__(self, store: Store, photos: Photos):
         self.store = store
         self.photos = photos
+        self._reload_busy = False
+        self._next_reload_at = 0.0
 
     async def admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         chat, message, user = update.effective_chat, update.effective_message, update.effective_user
@@ -230,6 +235,36 @@ class Handlers:
         if await self.admin(update, context):
             await self.send_kitten(update, context, test=True)
 
+    async def reloadcats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not await self.admin(update, context):
+            return
+        message = update.effective_message
+        if self._reload_busy:
+            await message.reply_text("Уже загружаю котов, скоро сообщу результат 🐾")
+            return
+        wait = math.ceil(self._next_reload_at - time.monotonic())
+        if wait > 0:
+            await message.reply_text(f"Повторить обновление можно через {wait} секунд.")
+            return
+        await message.reply_text("Проверяю котов на GitHub и загружаю новые картинки 🐾")
+        self._reload_busy = True
+        self._next_reload_at = time.monotonic() + 30
+        # Keep processing messages while GitHub downloads and image validation run.
+        context.application.create_task(self._reload_cats(update), update=update)
+
+    async def _reload_cats(self, update: Update) -> None:
+        try:
+            count = await self.photos.reload_from_github()
+            text = f"Коты обновлены 🐾 В наборе {count} картинок. Проверить: /test"
+        except CatSyncError as exc:
+            text = f"Не получилось обновить котов: {exc}"
+        except Exception as exc:
+            logger.warning("Cat reload failed (%s)", type(exc).__name__)
+            text = "Не получилось обновить котов. Прежний набор продолжает работать."
+        finally:
+            self._reload_busy = False
+        await update.effective_message.reply_text(text)
+
     async def message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Only new group messages; edits, commands and service events are filtered on registration.
         message = update.message
@@ -287,6 +322,7 @@ class Handlers:
                     BotCommand("resume", "Возобновить напоминания"),
                     BotCommand("reset", "Вернуть исходные настройки"),
                     BotCommand("test", "Прислать пробного котёнка"),
+                    BotCommand("reloadcats", "Обновить картинки котов из GitHub"),
                     BotCommand("help", "Как пользоваться ботом"),
                 ]
             )
@@ -317,6 +353,7 @@ def build_application(config: Config, store: Store, photos: Photos) -> Applicati
         "resume",
         "reset",
         "test",
+        "reloadcats",
     ):
         callback = handlers.help if name == "start" else getattr(handlers, name)
         app.add_handler(CommandHandler(name, callback, filters=filters.UpdateType.MESSAGE))

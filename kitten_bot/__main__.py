@@ -32,7 +32,7 @@ def main() -> int:
 
         for handler in logging.getLogger().handlers:
             handler.addFilter(NoLibraryLogs())
-        photos = Photos(config.kitten_dir)
+        photos = Photos(config.kitten_dir, cache_dir=config.db_path.parent / "cats")
         store = Store(config.db_path)
         app = build_application(config, store, photos)
         logging.getLogger(__name__).info(
